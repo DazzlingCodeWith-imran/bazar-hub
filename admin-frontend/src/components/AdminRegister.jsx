@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import axios from "axios";
 import { useNavigate, Link } from "react-router-dom"; // Link import kiya
 import { toast } from "react-toastify";
-const backendURL = process.env.REACT_APP_BACKEND_URL;
+const backendURL = import.meta.env.VITE_BACKEND_URL;
 
 const AdminRegister = () => {
   const [formData, setFormData] = useState({ name: "", email: "", password: "", adminSecret: "" });

@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
-const backendURL = process.env.REACT_APP_BACKEND_URL;
+const backendURL = import.meta.env.VITE_BACKEND_URL;
 
 
 const VerifyOTP = () => {
