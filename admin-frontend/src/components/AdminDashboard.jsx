@@ -23,24 +23,21 @@ const AdminDashboard = () => {
   const [totalPages, setTotalPages] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Check if user is admin
-  useEffect(() => {
-    const checkAdmin = async () => {
-      try {
-        const res = await axios.get(`${backendURL}/api/users/check-auth`, {
-          withCredentials: true,
-        });
-        if (res.data.data.role !== "admin") {
-          toast.error("Access denied: Admins only");
-          navigate("/admin/login");
-        }
-      } catch (err) {
-        toast.error("Please login to access the dashboard");
-        navigate("/admin/login");
-      }
-    };
-    checkAdmin();
-  }, [navigate]);
+ useEffect(() => {
+  const token = localStorage.getItem("token");
+  const user = JSON.parse(localStorage.getItem("user"));
+
+  if (!token) {
+    toast.error("Please login to access the dashboard");
+    navigate("/admin/login");
+    return;
+  }
+
+  if (!user || user.role !== "admin") {
+    toast.error("Access denied: Admins only");
+    navigate("/admin/login");
+  }
+}, [navigate]);
 
   // Fetch all products
   useEffect(() => {
