@@ -2,496 +2,841 @@ import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { useNavigate, Link } from "react-router-dom";
 import { toast } from "react-toastify";
-import { motion } from "framer-motion";
-import { FiUser, FiCalendar, FiLock, FiEdit, FiShoppingBag, FiChevronDown, FiUpload } from "react-icons/fi";
-import { FaCheckCircle } from "react-icons/fa";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  FiUser, FiCalendar, FiLock, FiEdit2, FiShoppingBag,
+  FiChevronRight, FiUpload, FiMail, FiPackage, FiLogOut,
+  FiCheck, FiX, FiTruck, FiClock
+} from "react-icons/fi";
 
-const Profile = () => {
+const BACKEND = import.meta.env.VITE_BACKEND_URL;
+
+const getAuthHeaders = () => ({
+  headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+  withCredentials: true,
+});
+
+const STATUS_CONFIG = {
+  Delivered:  { color: "#10b981", bg: "rgba(16,185,129,0.12)", icon: FiCheck },
+  Shipped:    { color: "#6366f1", bg: "rgba(99,102,241,0.12)", icon: FiTruck },
+  Processing: { color: "#f59e0b", bg: "rgba(245,158,11,0.12)", icon: FiClock },
+  Pending:    { color: "#94a3b8", bg: "rgba(148,163,184,0.12)", icon: FiPackage },
+};
+
+export default function Profile() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [updating, setUpdating] = useState(false);
   const [formData, setFormData] = useState({ name: "", password: "", profileImage: "" });
   const [activeTab, setActiveTab] = useState("profile");
   const [imageFile, setImageFile] = useState(null);
+  const [editMode, setEditMode] = useState(false);
 
-useEffect(() => {
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const [profileRes, ordersRes] = await Promise.all([
-        axios.get(`${import.meta.env.VITE_BACKEND_URL}/users/profile`, { withCredentials: true }),
-        axios.get(`${import.meta.env.VITE_BACKEND_URL}/orders`, { withCredentials: true }),
-      ]);
-      setUser(profileRes.data.data);
-      setFormData({
-        name: profileRes.data.data.name,
-        password: "",
-        profileImage: profileRes.data.data.profileImage || "",
-      });
-      setOrders(ordersRes.data.data);
-    } catch (err) {
-      handleError(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-  fetchData();
-}, [navigate]);
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) { navigate("/login"); return; }
 
+    const fetchData = async () => {
+      try {
+        const [profileRes, ordersRes] = await Promise.all([
+          axios.get(`${BACKEND}/users/profile`, getAuthHeaders()),
+          axios.get(`${BACKEND}/orders`, getAuthHeaders()),
+        ]);
+        const u = profileRes.data.data;
+        setUser(u);
+        setFormData({ name: u.name, password: "", profileImage: u.profileImage || "" });
+        setOrders(ordersRes.data.data || []);
+      } catch (err) {
+        const msg = err.response?.data?.message || "Failed to load profile";
+        toast.error(msg);
+        if (err.response?.status === 401) navigate("/login");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, [navigate]);
 
-  const handleError = (err) => {
-    const message = err.response?.data?.message || "Network error or server not responding";
-    toast.error(message);
-    if (err.response?.status === 401) navigate("/login");
-  };
-
-  const handleInputChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
-
-  const handleImageChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setImageFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFormData({ ...formData, profileImage: reader.result }); // Preview image locally
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const uploadImageToCloudinary = async () => {
-    if (!imageFile) return formData.profileImage; // Return existing image URL if no new file
-
-    const cloudinaryUrl = "https://api.cloudinary.com/v1_1/dbmsdibhu/image/upload"; // Replace YOUR_CLOUD_NAME
-    const uploadPreset = "ml_default"; // Replace with your unsigned upload preset
-
+  const uploadImage = async () => {
+    if (!imageFile) return formData.profileImage;
     const data = new FormData();
     data.append("file", imageFile);
-    data.append("upload_preset", uploadPreset);
+    data.append("upload_preset", "ml_default");
+    const res = await axios.post("https://api.cloudinary.com/v1_1/dbmsdibhu/image/upload", data);
+    return res.data.secure_url;
+  };
 
+  const handleUpdate = async (e) => {
+    e.preventDefault();
+    setUpdating(true);
     try {
-      const response = await axios.post(cloudinaryUrl, data);
-      return response.data.secure_url; // Return the uploaded image URL
+      const imageUrl = await uploadImage();
+      const payload = { ...formData, profileImage: imageUrl };
+      await axios.put(`${BACKEND}/users/profile`, payload, getAuthHeaders());
+      setUser((prev) => ({ ...prev, name: payload.name, profileImage: imageUrl }));
+      setFormData({ ...payload, password: "" });
+      setImageFile(null);
+      setEditMode(false);
+      toast.success("Profile updated!");
     } catch (err) {
-      toast.error("Image upload failed");
-      throw err;
+      toast.error(err.response?.data?.message || "Update failed");
+    } finally {
+      setUpdating(false);
     }
   };
 
- const handleUpdate = async (e) => {
-  e.preventDefault();
-  setLoading(true);
-  try {
-    const imageUrl = await uploadImageToCloudinary();
-    const updatedFormData = { ...formData, profileImage: imageUrl };
+  const handleLogout = () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    axios.defaults.headers.common["Authorization"] = "";
+    toast.success("Logged out");
+    navigate("/login");
+  };
 
-    await axios.put(
-      `${import.meta.env.VITE_BACKEND_URL}/users/profile`,
-      updatedFormData,
-      { withCredentials: true }
+  const initials = user?.name?.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2) || "U";
+
+  if (loading) {
+    return (
+      <div style={styles.loadingScreen}>
+        <div style={styles.loadingOrb} />
+        <p style={styles.loadingText}>Loading your profile...</p>
+      </div>
     );
-
-    toast.success(
-      <div className="flex items-center">
-        <FaCheckCircle className="w-5 h-5 text-green-500 mr-2" />
-        <span>Profile updated successfully</span>
-      </div>,
-      { position: "bottom-right" }
-    );
-
-    setUser({ ...user, name: updatedFormData.name, profileImage: imageUrl });
-    setFormData({ ...updatedFormData, password: "" });
-    setImageFile(null); // Clear file input
-  } catch (err) {
-    handleError(err);
-  } finally {
-    setLoading(false);
   }
-};
-
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-indigo-100">
-      {/* Animated Background Elements */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <motion.div
-          animate={{ y: [0, -20, 0], scale: [1, 1.1, 1] }}
-          transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute top-10 left-10 w-72 h-72 bg-indigo-200 rounded-full filter blur-3xl opacity-10"
-        />
-        <motion.div
-          animate={{ y: [0, 20, 0], scale: [1, 1.05, 1] }}
-          transition={{ duration: 8, repeat: Infinity, ease: "easeInOut", delay: 2 }}
-          className="absolute bottom-10 right-10 w-96 h-96 bg-purple-200 rounded-full filter blur-3xl opacity-10"
-        />
-      </div>
+    <div style={styles.root}>
+      {/* Background */}
+      <div style={styles.bgGradient} />
+      <div style={styles.bgGrid} />
 
-      <motion.div
-        initial={{ opacity: 0, y: 30 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.8 }}
-        className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16"
-      >
-        {/* Profile Header */}
-        <div className="flex flex-col items-center mb-16 text-center">
-          <motion.div whileHover={{ scale: 1.05 }} className="relative mb-8">
-            <div className="w-28 h-28 rounded-full bg-gradient-to-r from-indigo-600 to-purple-600 flex items-center justify-center text-white text-4xl font-bold shadow-lg overflow-hidden">
-              {formData.profileImage ? (
-                <img src={formData.profileImage} alt="Profile" className="w-full h-full object-cover" />
-              ) : (
-                user?.name?.charAt(0).toUpperCase() || "U"
-              )}
+      <div style={styles.container}>
+        {/* ── SIDEBAR ── */}
+        <motion.aside
+          initial={{ opacity: 0, x: -30 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.6 }}
+          style={styles.sidebar}
+        >
+          {/* Avatar */}
+          <div style={styles.avatarSection}>
+            <div style={styles.avatarRing}>
+              <div style={styles.avatar}>
+                {formData.profileImage ? (
+                  <img src={formData.profileImage} alt="avatar" style={styles.avatarImg} />
+                ) : (
+                  <span style={styles.avatarInitials}>{initials}</span>
+                )}
+              </div>
             </div>
-            <motion.div
-              whileHover={{ rotate: 90 }}
-              className="absolute -bottom-3 -right-3 bg-white p-2 rounded-full shadow-md border border-gray-200"
-            >
-              <FiEdit className="text-indigo-600 w-5 h-5" />
-            </motion.div>
-          </motion.div>
-          <h1 className="text-4xl font-extrabold text-gray-900 mb-2">
-            {user?.name || "Loading..."}
-          </h1>
-          <p className="text-lg text-gray-600">{user?.email || "user@example.com"}</p>
-        </div>
-
-        {/* Tab Navigation */}
-        <div className="flex justify-center mb-12">
-          <div className="inline-flex bg-white rounded-full p-1 shadow-lg border border-gray-100">
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => setActiveTab("profile")}
-              className={`px-8 py-3 rounded-full font-semibold text-lg transition-all ${
-                activeTab === "profile"
-                  ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white"
-                  : "text-gray-600 hover:bg-gray-100"
-              }`}
-            >
-              <FiUser className="inline mr-2 w-5 h-5" /> Profile
-            </motion.button>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => setActiveTab("orders")}
-              className={`px-8 py-3 rounded-full font-semibold text-lg transition-all ${
-                activeTab === "orders"
-                  ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white"
-                  : "text-gray-600 hover:bg-gray-100"
-              }`}
-            >
-              <FiShoppingBag className="inline mr-2 w-5 h-5" /> Orders
-            </motion.button>
+            <h2 style={styles.sidebarName}>{user?.name}</h2>
+            <p style={styles.sidebarEmail}>{user?.email}</p>
+            <div style={styles.badge}>
+              <span style={styles.badgeDot} />
+              Verified Member
+            </div>
           </div>
-        </div>
 
-        {/* Content Area */}
-        <div className="bg-white rounded-3xl shadow-2xl overflow-hidden">
-          {loading ? (
-            <div className="flex justify-center items-center h-80">
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                className="w-12 h-12 border-4 border-t-indigo-500 border-gray-200 rounded-full"
-              />
+          {/* Nav */}
+          <nav style={styles.nav}>
+            {[
+              { key: "profile", label: "Profile", icon: FiUser },
+              { key: "orders", label: "Orders", icon: FiShoppingBag },
+            ].map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                onClick={() => setActiveTab(key)}
+                style={{
+                  ...styles.navBtn,
+                  ...(activeTab === key ? styles.navBtnActive : {}),
+                }}
+              >
+                <Icon size={16} />
+                {label}
+                {activeTab === key && <FiChevronRight size={14} style={{ marginLeft: "auto" }} />}
+              </button>
+            ))}
+          </nav>
+
+          {/* Stats */}
+          <div style={styles.statsRow}>
+            <div style={styles.statBox}>
+              <span style={styles.statNum}>{orders.length}</span>
+              <span style={styles.statLabel}>Orders</span>
             </div>
-          ) : (
-            <>
-              {/* Profile Tab */}
-              {activeTab === "profile" && (
-                <motion.div
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: 0.5 }}
-                  className="p-8 lg:p-12"
-                >
-                  <h2 className="text-3xl font-bold text-gray-900 mb-10 flex items-center">
-                    <FiUser className="mr-3 text-indigo-600 w-7 h-7" /> Personal Information
-                  </h2>
+            <div style={styles.statDivider} />
+            <div style={styles.statBox}>
+              <span style={styles.statNum}>
+                {orders.filter((o) => o.status === "Delivered").length}
+              </span>
+              <span style={styles.statLabel}>Delivered</span>
+            </div>
+          </div>
 
-                  <form onSubmit={handleUpdate} className="space-y-8 max-w-xl mx-auto">
-                    <div className="space-y-2">
-                      <label className="block text-sm font-medium text-gray-700">Full Name</label>
-                      <input
-                        type="text"
-                        name="name"
-                        value={formData.name}
-                        onChange={handleInputChange}
-                        className="w-full px-5 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-lg shadow-sm"
-                        required
-                      />
-                    </div>
+          <button onClick={handleLogout} style={styles.logoutBtn}>
+            <FiLogOut size={14} />
+            Sign Out
+          </button>
+        </motion.aside>
 
-                    <div className="space-y-2">
-                      <label className="block text-sm font-medium text-gray-700">Email</label>
-                      <input
-                        type="email"
-                        value={user?.email || ""}
-                        className="w-full px-5 py-3 border border-gray-200 rounded-xl bg-gray-100 cursor-not-allowed text-lg shadow-sm"
-                        disabled
-                      />
-                    </div>
+        {/* ── MAIN ── */}
+        <main style={styles.main}>
+          <AnimatePresence mode="wait">
+            {/* ── PROFILE TAB ── */}
+            {activeTab === "profile" && (
+              <motion.div
+                key="profile"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.4 }}
+              >
+                <div style={styles.cardHeader}>
+                  <div>
+                    <h1 style={styles.cardTitle}>Personal Information</h1>
+                    <p style={styles.cardSubtitle}>Manage your account details</p>
+                  </div>
+                  {!editMode && (
+                    <button onClick={() => setEditMode(true)} style={styles.editBtn}>
+                      <FiEdit2 size={14} />
+                      Edit Profile
+                    </button>
+                  )}
+                </div>
 
-                    <div className="space-y-2">
-                      <label className="block text-sm font-medium text-gray-700">Profile Image</label>
-                      <div className="relative">
-                        <FiUpload className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={handleImageChange}
-                          className="w-full pl-12 pr-5 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-lg shadow-sm"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="block text-sm font-medium text-gray-700">New Password</label>
-                      <div className="relative">
-                        <FiLock className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                        <input
-                          type="password"
-                          name="password"
-                          value={formData.password}
-                          onChange={handleInputChange}
-                          className="w-full pl-12 pr-5 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50 text-lg shadow-sm"
-                          placeholder="Leave blank to keep current password"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="pt-2">
-                      <motion.button
-                        type="submit"
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        disabled={loading}
-                        className="w-full py-4 px-6 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold rounded-xl hover:from-indigo-700 hover:to-purple-700 transition-all shadow-md hover:shadow-lg text-lg disabled:opacity-50"
-                      >
-                        {loading ? "Updating..." : "Update Profile"}
-                      </motion.button>
-                    </div>
-                  </form>
-                </motion.div>
-              )}
-
-              {/* Orders Tab (unchanged) */}
-              {activeTab === "orders" && (
-                <motion.div
-                  initial={{ opacity: 0, x: 20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: 0.5 }}
-                  className="p-8 lg:p-12"
-                >
-                  <h2 className="text-3xl font-bold text-gray-900 mb-10 flex items-center">
-                    <FiShoppingBag className="mr-3 text-indigo-600 w-7 h-7" /> Order History
-                  </h2>
-                  {orders.length === 0 ? (
-                    <div className="text-center py-16">
-                      <FiShoppingBag className="mx-auto text-6xl text-gray-300 mb-6" />
-                      <h3 className="text-2xl font-medium text-gray-800 mb-3">No Orders Yet</h3>
-                      <p className="text-gray-500 mb-8 text-lg">
-                        You haven't placed any orders yet.
-                      </p>
-                      <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                        <Link
-                          to="/products"
-                          className="inline-flex items-center px-8 py-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl font-semibold hover:from-indigo-700 hover:to-purple-700 transition-all shadow-md hover:shadow-lg text-lg"
-                        >
-                          Start Shopping
-                          <FiChevronDown className="ml-2 w-5 h-5 transform rotate-90" />
-                        </Link>
-                      </motion.div>
+                <div style={styles.card}>
+                  {!editMode ? (
+                    /* ── VIEW MODE ── */
+                    <div style={styles.infoGrid}>
+                      {[
+                        { icon: FiUser, label: "Full Name", value: user?.name },
+                        { icon: FiMail, label: "Email", value: user?.email },
+                        { icon: FiCalendar, label: "Member Since", value: new Date(user?.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }) },
+                        { icon: FiPackage, label: "Total Orders", value: orders.length + " orders placed" },
+                      ].map(({ icon: Icon, label, value }) => (
+                        <div key={label} style={styles.infoRow}>
+                          <div style={styles.infoIcon}><Icon size={16} color="#6366f1" /></div>
+                          <div>
+                            <p style={styles.infoLabel}>{label}</p>
+                            <p style={styles.infoValue}>{value}</p>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   ) : (
-                    <div className="space-y-8">
-                      {orders.map((order) => (
+                    /* ── EDIT MODE ── */
+                    <form onSubmit={handleUpdate} style={styles.form}>
+                      <div style={styles.formGroup}>
+                        <label style={styles.label}>Full Name</label>
+                        <div style={styles.inputWrap}>
+                          <FiUser size={15} color="#64748b" style={styles.inputIcon} />
+                          <input
+                            type="text"
+                            name="name"
+                            value={formData.name}
+                            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                            style={styles.input}
+                            required
+                            placeholder="Your full name"
+                          />
+                        </div>
+                      </div>
+
+                      <div style={styles.formGroup}>
+                        <label style={styles.label}>Email Address</label>
+                        <div style={styles.inputWrap}>
+                          <FiMail size={15} color="#64748b" style={styles.inputIcon} />
+                          <input
+                            type="email"
+                            value={user?.email}
+                            style={{ ...styles.input, opacity: 0.5, cursor: "not-allowed" }}
+                            disabled
+                          />
+                        </div>
+                      </div>
+
+                      <div style={styles.formGroup}>
+                        <label style={styles.label}>Profile Photo</label>
+                        <div style={styles.uploadZone}>
+                          <FiUpload size={20} color="#6366f1" />
+                          <span style={{ fontSize: 13, color: "#94a3b8", marginTop: 6 }}>
+                            {imageFile ? imageFile.name : "Click to upload image"}
+                          </span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              const f = e.target.files[0];
+                              if (f) {
+                                setImageFile(f);
+                                const r = new FileReader();
+                                r.onloadend = () => setFormData((p) => ({ ...p, profileImage: r.result }));
+                                r.readAsDataURL(f);
+                              }
+                            }}
+                            style={styles.fileInput}
+                          />
+                        </div>
+                      </div>
+
+                      <div style={styles.formGroup}>
+                        <label style={styles.label}>New Password <span style={{ color: "#64748b", fontWeight: 400 }}>(optional)</span></label>
+                        <div style={styles.inputWrap}>
+                          <FiLock size={15} color="#64748b" style={styles.inputIcon} />
+                          <input
+                            type="password"
+                            name="password"
+                            value={formData.password}
+                            onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                            style={styles.input}
+                            placeholder="Leave blank to keep current"
+                          />
+                        </div>
+                      </div>
+
+                      <div style={styles.formActions}>
+                        <button
+                          type="button"
+                          onClick={() => { setEditMode(false); setImageFile(null); }}
+                          style={styles.cancelBtn}
+                        >
+                          <FiX size={14} /> Cancel
+                        </button>
+                        <button type="submit" disabled={updating} style={styles.saveBtn}>
+                          {updating ? (
+                            <span style={styles.spinner} />
+                          ) : (
+                            <><FiCheck size={14} /> Save Changes</>
+                          )}
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                </div>
+              </motion.div>
+            )}
+
+            {/* ── ORDERS TAB ── */}
+            {activeTab === "orders" && (
+              <motion.div
+                key="orders"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.4 }}
+              >
+                <div style={styles.cardHeader}>
+                  <div>
+                    <h1 style={styles.cardTitle}>Order History</h1>
+                    <p style={styles.cardSubtitle}>{orders.length} orders placed</p>
+                  </div>
+                </div>
+
+                {orders.length === 0 ? (
+                  <div style={styles.emptyState}>
+                    <FiShoppingBag size={48} color="#334155" />
+                    <h3 style={styles.emptyTitle}>No orders yet</h3>
+                    <p style={styles.emptyText}>Your order history will appear here</p>
+                    <Link to="/products" style={styles.shopBtn}>Browse Products</Link>
+                  </div>
+                ) : (
+                  <div style={styles.ordersList}>
+                    {orders.map((order, i) => {
+                      const cfg = STATUS_CONFIG[order.status] || STATUS_CONFIG.Pending;
+                      const StatusIcon = cfg.icon;
+                      return (
                         <motion.div
                           key={order._id}
                           initial={{ opacity: 0, y: 20 }}
                           animate={{ opacity: 1, y: 0 }}
-                          transition={{ duration: 0.5 }}
-                          whileHover={{ y: -5 }}
-                          className="border border-gray-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all bg-white"
+                          transition={{ delay: i * 0.07 }}
+                          style={styles.orderCard}
                         >
-                          <div className="p-6 bg-gray-50 border-b border-gray-200">
-                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                              <div>
-                                <p className="text-sm text-gray-500 mb-1">
-                                  Order #{order._id.substring(0, 8).toUpperCase()}
-                                </p>
-                                <p className="font-semibold text-gray-900 text-lg flex items-center">
-                                  <FiCalendar className="mr-2 w-5 h-5 text-indigo-500" />
-                                  {new Date(order.createdAt).toLocaleDateString("en-US", {
-                                    year: "numeric",
-                                    month: "long",
-                                    day: "numeric",
-                                  })}
-                                </p>
+                          <div style={styles.orderTop}>
+                            <div>
+                              <p style={styles.orderId}>#{order._id.slice(-8).toUpperCase()}</p>
+                              <p style={styles.orderDate}>
+                                <FiCalendar size={12} style={{ marginRight: 5 }} />
+                                {new Date(order.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
+                              </p>
+                            </div>
+                            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
+                              <div style={{ ...styles.statusBadge, background: cfg.bg, color: cfg.color }}>
+                                <StatusIcon size={12} />
+                                {order.status}
                               </div>
-                              <div className="flex flex-col items-start sm:items-end">
-                                <span
-                                  className={`px-4 py-1 rounded-full text-sm font-medium shadow-sm ${
-                                    order.status === "completed"
-                                      ? "bg-green-100 text-green-800"
-                                      : order.status === "processing"
-                                      ? "bg-yellow-100 text-yellow-800"
-                                      : "bg-blue-100 text-blue-800"
-                                  }`}
-                                >
-                                  {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
-                                </span>
-                                <p className="text-xl font-bold text-gray-900 mt-2">
-                                  ₹{order.totalPrice.toLocaleString()}
-                                </p>
-                              </div>
+                              <p style={styles.orderTotal}>₹{order.totalPrice?.toLocaleString()}</p>
                             </div>
                           </div>
-                          <div className="p-6">
-                            <h4 className="font-semibold text-gray-900 mb-5 text-lg">Items Ordered</h4>
-                            <div className="space-y-6">
-                              {order.items.map((item) => (
-                                <div key={item._id} className="flex items-start">
-                                  <div className="flex-shrink-0 w-20 h-20 bg-gray-100 rounded-xl overflow-hidden shadow-sm">
-                                    <img
-                                      src={item.productImage || "https://via.placeholder.com/150"}
-                                      alt={item.productTitle}
-                                      className="w-full h-full object-cover transition-transform duration-300 hover:scale-105"
-                                    />
-                                  </div>
-                                  <div className="ml-5 flex-1">
-                                    <h5 className="font-medium text-gray-900 text-lg line-clamp-2">
-                                      {item.productTitle}
-                                    </h5>
-                                    <p className="text-sm text-gray-600">Qty: {item.quantity}</p>
-                                  </div>
-                                  <div className="ml-auto font-semibold text-gray-900 text-lg">
-                                    ₹{(item.productPrice * item.quantity).toLocaleString()}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="mt-6">
-                              <Link
-                                to={`/orders/${order._id}`}
-                                className="inline-flex items-center px-6 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors shadow-md"
-                              >
-                                View Details
-                                <FiChevronDown className="ml-2 w-5 h-5 transform rotate-90" />
-                              </Link>
-                            </motion.div>
-                          </div>
-                        </motion.div>
-                      ))}
-                    </div>
-                  )}
-                </motion.div>
-              )}
-            </>
-          )}
-        </div>
-      </motion.div>
 
-      {/* Footer (unchanged) */}
-      <footer className="bg-gray-900 text-white pt-20 pb-12">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-12">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.8 }}
-            >
-              <h3 className="text-3xl font-extrabold mb-6">
-                <span className="bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-400">
-                  BazaarHub
-                </span>
-              </h3>
-              <p className="text-gray-400 mb-6 text-lg">
-                Your premier destination for quality products and exceptional shopping experiences.
-              </p>
-            </motion.div>
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.8, delay: 0.2 }}
-            >
-              <h4 className="text-xl font-semibold mb-6 text-gray-200">Shop</h4>
-              <ul className="space-y-4">
-                {["All Products", "Electronics", "Clothing", "Home & Kitchen"].map((item) => (
-                  <li key={item}>
-                    <Link
-                      to={`/products${item === "All Products" ? "" : `/${item.toLowerCase().replace(" & ", "-")}`}`}
-                      className="text-gray-400 hover:text-white transition-colors text-lg hover:pl-2"
-                    >
-                      {item}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </motion.div>
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.8, delay: 0.4 }}
-            >
-              <h4 className="text-xl font-semibold mb-6 text-gray-200">Support</h4>
-              <ul className="space-y-4">
-                {["Contact Us", "FAQs", "Shipping", "Returns"].map((item) => (
-                  <li key={item}>
-                    <Link
-                      to={`/${item.toLowerCase()}`}
-                      className="text-gray-400 hover:text-white transition-colors text-lg hover:pl-2"
-                    >
-                      {item}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </motion.div>
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.8, delay: 0.6 }}
-            >
-              <h4 className="text-xl font-semibold mb-6 text-gray-200">Newsletter</h4>
-              <form className="flex">
-                <input
-                  type="email"
-                  placeholder="Your email"
-                  className="flex-grow px-5 py-3 rounded-l-xl bg-gray-800 text-gray-200 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-lg shadow-md"
-                  required
-                />
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  type="submit"
-                  className="px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold rounded-r-xl hover:from-indigo-700 hover:to-purple-700 transition-colors text-lg shadow-md"
-                >
-                  Subscribe
-                </motion.button>
-              </form>
-            </motion.div>
-          </div>
-          <motion.div
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.8, delay: 0.8 }}
-            className="border-t border-gray-800 mt-16 pt-8 text-center text-gray-500 text-lg"
-          >
-            <p>© {new Date().getFullYear()} BazaarHub. All rights reserved.</p>
-          </motion.div>
-        </div>
-      </footer>
+                          <div style={styles.orderItems}>
+                            {order.items.slice(0, 3).map((item) => (
+                              <div key={item._id} style={styles.orderItem}>
+                                <div style={styles.orderItemImg}>
+                                  <img
+                                    src={item.productImage || "https://via.placeholder.com/60"}
+                                    alt={item.productTitle}
+                                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                                  />
+                                </div>
+                                <div style={{ flex: 1 }}>
+                                  <p style={styles.orderItemName}>{item.productTitle}</p>
+                                  <p style={styles.orderItemQty}>Qty: {item.quantity}</p>
+                                </div>
+                                <p style={styles.orderItemPrice}>₹{(item.productPrice * item.quantity).toLocaleString()}</p>
+                              </div>
+                            ))}
+                            {order.items.length > 3 && (
+                              <p style={styles.moreItems}>+{order.items.length - 3} more items</p>
+                            )}
+                          </div>
+
+                          <Link to={`/orders/${order._id}`} style={styles.viewOrderBtn}>
+                            View Details <FiChevronRight size={14} />
+                          </Link>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </main>
+      </div>
     </div>
   );
-};
+}
 
-export default Profile;
+/* ─── STYLES ─── */
+const styles = {
+  root: {
+    minHeight: "100vh",
+    background: "#060b18",
+    position: "relative",
+    fontFamily: "'DM Sans', sans-serif",
+    overflowX: "hidden",
+  },
+  bgGradient: {
+    position: "fixed",
+    inset: 0,
+    background: "radial-gradient(ellipse 80% 60% at 20% -10%, rgba(99,102,241,0.15) 0%, transparent 60%), radial-gradient(ellipse 60% 50% at 80% 100%, rgba(16,185,129,0.08) 0%, transparent 60%)",
+    pointerEvents: "none",
+    zIndex: 0,
+  },
+  bgGrid: {
+    position: "fixed",
+    inset: 0,
+    backgroundImage: "linear-gradient(rgba(99,102,241,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(99,102,241,0.04) 1px, transparent 1px)",
+    backgroundSize: "48px 48px",
+    pointerEvents: "none",
+    zIndex: 0,
+  },
+  loadingScreen: {
+    minHeight: "100vh",
+    background: "#060b18",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 16,
+  },
+  loadingOrb: {
+    width: 48,
+    height: 48,
+    borderRadius: "50%",
+    border: "2px solid rgba(99,102,241,0.2)",
+    borderTopColor: "#6366f1",
+    animation: "spin 0.8s linear infinite",
+  },
+  loadingText: {
+    color: "#64748b",
+    fontSize: 14,
+    fontFamily: "'DM Sans', sans-serif",
+  },
+  container: {
+    position: "relative",
+    zIndex: 1,
+    maxWidth: 1100,
+    margin: "0 auto",
+    padding: "40px 24px",
+    display: "flex",
+    gap: 28,
+    alignItems: "flex-start",
+  },
+  sidebar: {
+    width: 280,
+    flexShrink: 0,
+    background: "rgba(15,23,42,0.8)",
+    backdropFilter: "blur(20px)",
+    border: "1px solid rgba(99,102,241,0.15)",
+    borderRadius: 20,
+    padding: 24,
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+    position: "sticky",
+    top: 40,
+  },
+  avatarSection: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    padding: "16px 0 24px",
+    borderBottom: "1px solid rgba(255,255,255,0.06)",
+    marginBottom: 8,
+  },
+  avatarRing: {
+    padding: 3,
+    borderRadius: "50%",
+    background: "linear-gradient(135deg, #6366f1, #10b981)",
+    marginBottom: 14,
+  },
+  avatar: {
+    width: 76,
+    height: 76,
+    borderRadius: "50%",
+    background: "#0f172a",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    border: "2px solid #060b18",
+  },
+  avatarImg: { width: "100%", height: "100%", objectFit: "cover" },
+  avatarInitials: {
+    fontSize: 26,
+    fontWeight: 700,
+    background: "linear-gradient(135deg, #6366f1, #10b981)",
+    WebkitBackgroundClip: "text",
+    WebkitTextFillColor: "transparent",
+    fontFamily: "'DM Sans', sans-serif",
+  },
+  sidebarName: {
+    fontSize: 17,
+    fontWeight: 600,
+    color: "#f1f5f9",
+    margin: 0,
+    letterSpacing: "-0.3px",
+  },
+  sidebarEmail: {
+    fontSize: 12,
+    color: "#64748b",
+    margin: "4px 0 10px",
+  },
+  badge: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    fontSize: 11,
+    color: "#10b981",
+    background: "rgba(16,185,129,0.1)",
+    border: "1px solid rgba(16,185,129,0.2)",
+    borderRadius: 20,
+    padding: "3px 10px",
+    fontWeight: 500,
+  },
+  badgeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: "50%",
+    background: "#10b981",
+    display: "inline-block",
+    animation: "pulse 2s infinite",
+  },
+  nav: { display: "flex", flexDirection: "column", gap: 4, margin: "8px 0" },
+  navBtn: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "10px 14px",
+    borderRadius: 10,
+    border: "none",
+    background: "transparent",
+    color: "#64748b",
+    fontSize: 14,
+    fontWeight: 500,
+    cursor: "pointer",
+    transition: "all 0.2s",
+    fontFamily: "'DM Sans', sans-serif",
+    textAlign: "left",
+  },
+  navBtnActive: {
+    background: "rgba(99,102,241,0.12)",
+    color: "#a5b4fc",
+    border: "1px solid rgba(99,102,241,0.2)",
+  },
+  statsRow: {
+    display: "flex",
+    background: "rgba(99,102,241,0.06)",
+    border: "1px solid rgba(99,102,241,0.1)",
+    borderRadius: 12,
+    padding: "14px 0",
+    margin: "8px 0",
+  },
+  statBox: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 3,
+  },
+  statDivider: {
+    width: 1,
+    background: "rgba(99,102,241,0.15)",
+    margin: "4px 0",
+  },
+  statNum: { fontSize: 22, fontWeight: 700, color: "#a5b4fc" },
+  statLabel: { fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.5 },
+  logoutBtn: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    padding: "10px",
+    borderRadius: 10,
+    border: "1px solid rgba(239,68,68,0.2)",
+    background: "rgba(239,68,68,0.06)",
+    color: "#f87171",
+    fontSize: 13,
+    fontWeight: 500,
+    cursor: "pointer",
+    marginTop: 8,
+    fontFamily: "'DM Sans', sans-serif",
+    transition: "all 0.2s",
+  },
+  main: { flex: 1, minWidth: 0 },
+  cardHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 20,
+  },
+  cardTitle: {
+    fontSize: 22,
+    fontWeight: 700,
+    color: "#f1f5f9",
+    margin: 0,
+    letterSpacing: "-0.5px",
+  },
+  cardSubtitle: { fontSize: 13, color: "#64748b", margin: "4px 0 0" },
+  editBtn: {
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+    padding: "8px 16px",
+    borderRadius: 10,
+    border: "1px solid rgba(99,102,241,0.3)",
+    background: "rgba(99,102,241,0.1)",
+    color: "#a5b4fc",
+    fontSize: 13,
+    fontWeight: 500,
+    cursor: "pointer",
+    fontFamily: "'DM Sans', sans-serif",
+  },
+  card: {
+    background: "rgba(15,23,42,0.8)",
+    backdropFilter: "blur(20px)",
+    border: "1px solid rgba(99,102,241,0.12)",
+    borderRadius: 20,
+    padding: 28,
+  },
+  infoGrid: { display: "flex", flexDirection: "column", gap: 4 },
+  infoRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 16,
+    padding: "16px 0",
+    borderBottom: "1px solid rgba(255,255,255,0.04)",
+  },
+  infoIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    background: "rgba(99,102,241,0.1)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  infoLabel: { fontSize: 11, color: "#64748b", margin: 0, textTransform: "uppercase", letterSpacing: 0.5 },
+  infoValue: { fontSize: 15, color: "#e2e8f0", margin: "3px 0 0", fontWeight: 500 },
+  form: { display: "flex", flexDirection: "column", gap: 20 },
+  formGroup: { display: "flex", flexDirection: "column", gap: 7 },
+  label: { fontSize: 12, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.6 },
+  inputWrap: { position: "relative" },
+  inputIcon: { position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" },
+  input: {
+    width: "100%",
+    padding: "11px 14px 11px 40px",
+    background: "rgba(255,255,255,0.04)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    borderRadius: 10,
+    color: "#e2e8f0",
+    fontSize: 14,
+    outline: "none",
+    fontFamily: "'DM Sans', sans-serif",
+    boxSizing: "border-box",
+    transition: "border 0.2s",
+  },
+  uploadZone: {
+    position: "relative",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "24px",
+    border: "1.5px dashed rgba(99,102,241,0.25)",
+    borderRadius: 12,
+    background: "rgba(99,102,241,0.04)",
+    cursor: "pointer",
+    gap: 4,
+  },
+  fileInput: {
+    position: "absolute",
+    inset: 0,
+    opacity: 0,
+    cursor: "pointer",
+    width: "100%",
+    height: "100%",
+  },
+  formActions: { display: "flex", gap: 10, paddingTop: 4 },
+  cancelBtn: {
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+    padding: "11px 20px",
+    borderRadius: 10,
+    border: "1px solid rgba(255,255,255,0.08)",
+    background: "rgba(255,255,255,0.04)",
+    color: "#94a3b8",
+    fontSize: 14,
+    fontWeight: 500,
+    cursor: "pointer",
+    fontFamily: "'DM Sans', sans-serif",
+  },
+  saveBtn: {
+    flex: 1,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    padding: "11px 20px",
+    borderRadius: 10,
+    border: "none",
+    background: "linear-gradient(135deg, #6366f1, #818cf8)",
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: 600,
+    cursor: "pointer",
+    fontFamily: "'DM Sans', sans-serif",
+    boxShadow: "0 4px 20px rgba(99,102,241,0.3)",
+  },
+  spinner: {
+    width: 16,
+    height: 16,
+    border: "2px solid rgba(255,255,255,0.3)",
+    borderTopColor: "#fff",
+    borderRadius: "50%",
+    animation: "spin 0.7s linear infinite",
+    display: "inline-block",
+  },
+  emptyState: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "60px 20px",
+    background: "rgba(15,23,42,0.8)",
+    backdropFilter: "blur(20px)",
+    border: "1px solid rgba(99,102,241,0.12)",
+    borderRadius: 20,
+    gap: 12,
+  },
+  emptyTitle: { fontSize: 18, fontWeight: 600, color: "#e2e8f0", margin: 0 },
+  emptyText: { fontSize: 14, color: "#64748b", margin: 0 },
+  shopBtn: {
+    marginTop: 8,
+    padding: "10px 24px",
+    borderRadius: 10,
+    background: "linear-gradient(135deg, #6366f1, #818cf8)",
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: 600,
+    textDecoration: "none",
+    boxShadow: "0 4px 20px rgba(99,102,241,0.3)",
+  },
+  ordersList: { display: "flex", flexDirection: "column", gap: 14 },
+  orderCard: {
+    background: "rgba(15,23,42,0.8)",
+    backdropFilter: "blur(20px)",
+    border: "1px solid rgba(99,102,241,0.1)",
+    borderRadius: 16,
+    overflow: "hidden",
+  },
+  orderTop: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    padding: "18px 20px 14px",
+    borderBottom: "1px solid rgba(255,255,255,0.04)",
+  },
+  orderId: { fontSize: 14, fontWeight: 700, color: "#a5b4fc", margin: 0, letterSpacing: 0.5 },
+  orderDate: {
+    display: "flex",
+    alignItems: "center",
+    fontSize: 12,
+    color: "#64748b",
+    marginTop: 4,
+  },
+  statusBadge: {
+    display: "flex",
+    alignItems: "center",
+    gap: 5,
+    fontSize: 11,
+    fontWeight: 600,
+    padding: "4px 10px",
+    borderRadius: 20,
+    letterSpacing: 0.3,
+  },
+  orderTotal: { fontSize: 17, fontWeight: 700, color: "#f1f5f9", margin: 0 },
+  orderItems: { padding: "14px 20px", display: "flex", flexDirection: "column", gap: 10 },
+  orderItem: { display: "flex", alignItems: "center", gap: 12 },
+  orderItemImg: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    overflow: "hidden",
+    background: "#0f172a",
+    flexShrink: 0,
+    border: "1px solid rgba(255,255,255,0.06)",
+  },
+  orderItemName: {
+    fontSize: 13,
+    fontWeight: 500,
+    color: "#e2e8f0",
+    margin: 0,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    maxWidth: 200,
+  },
+  orderItemQty: { fontSize: 12, color: "#64748b", margin: "3px 0 0" },
+  orderItemPrice: { marginLeft: "auto", fontSize: 13, fontWeight: 600, color: "#a5b4fc" },
+  moreItems: { fontSize: 12, color: "#64748b", margin: "4px 0 0", textAlign: "center" },
+  viewOrderBtn: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    padding: "12px",
+    borderTop: "1px solid rgba(255,255,255,0.04)",
+    color: "#6366f1",
+    fontSize: 13,
+    fontWeight: 500,
+    textDecoration: "none",
+    transition: "background 0.2s",
+  },
+};
