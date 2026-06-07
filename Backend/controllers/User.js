@@ -197,19 +197,30 @@ const loginUser = async (req, res) => {
     );
 
     // COOKIE SET
- // ✅ Yeh karo
-res.cookie("userToken", token, {
+    // res.cookie("userToken", token, {
+    //   httpOnly: true,
+    //   secure: false,
+    //   sameSite: "lax",
+    //   maxAge: 24 * 60 * 60 * 1000,
+    // });
+    res.cookie("userToken", token, {
   httpOnly: true,
   secure: true,       // ← HTTPS ke liye
   sameSite: "None",   // ← cross-domain ke liye
   maxAge: 24 * 60 * 60 * 1000,
 });
 
+    // res.status(200).json({
+    //   success: true,
+    //   message: "Login successful",
+    //   data: existingUser,
+    // });
     res.status(200).json({
-      success: true,
-      message: "Login successful",
-      data: existingUser,
-    });
+  success: true,
+  message: "Login successful",
+  data: existingUser,
+  token: token,  // ← YEH ADD KARO
+});
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -221,11 +232,16 @@ res.cookie("userToken", token, {
 // ================= LOGOUT =================
 const logoutUser = async (req, res) => {
   try {
- res.clearCookie("userToken", {
+    // res.clearCookie("userToken", {
+    //   httpOnly: true,
+    //   secure: false,
+    //   sameSite: "lax",
+    // });
+    res.clearCookie("userToken", {
   httpOnly: true,
   secure: true,
   sameSite: "None",
-})
+});
 
     res.status(200).json({
       success: true,
