@@ -197,12 +197,13 @@ const loginUser = async (req, res) => {
     );
 
     // COOKIE SET
-    res.cookie("userToken", token, {
-      httpOnly: true,
-      secure: false,
-      sameSite: "lax",
-      maxAge: 24 * 60 * 60 * 1000,
-    });
+ // ✅ Yeh karo
+res.cookie("userToken", token, {
+  httpOnly: true,
+  secure: true,       // ← HTTPS ke liye
+  sameSite: "None",   // ← cross-domain ke liye
+  maxAge: 24 * 60 * 60 * 1000,
+});
 
     res.status(200).json({
       success: true,
@@ -220,11 +221,11 @@ const loginUser = async (req, res) => {
 // ================= LOGOUT =================
 const logoutUser = async (req, res) => {
   try {
-    res.clearCookie("userToken", {
-      httpOnly: true,
-      secure: false,
-      sameSite: "lax",
-    });
+ res.clearCookie("userToken", {
+  httpOnly: true,
+  secure: true,
+  sameSite: "None",
+})
 
     res.status(200).json({
       success: true,
