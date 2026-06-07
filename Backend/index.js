@@ -19,6 +19,7 @@ app.use(
       "http://localhost:5173",
       "http://localhost:5174",
       "https://mern-ecommerce-frontend-d5eg.onrender.com",
+      "https://bazar-hub-eight.vercel.app",   // ← YEH ADD KARO
     ],
     credentials: true,
   })
