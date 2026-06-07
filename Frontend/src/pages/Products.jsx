@@ -39,6 +39,7 @@ const Products = () => {
             rating: filters.rating,
             sort: sort || undefined,
           },
+          
         });
         setProducts(res.data.data.products || []);
         setTotalPages(Math.ceil((res.data.data.total || 0) / productsPerPage));
@@ -50,6 +51,7 @@ const Products = () => {
         setLoading(false);
       }
     };
+    console.log("Backend URL:", import.meta.env.VITE_BACKEND_URL);
     
     const timer = setTimeout(() => {
       fetchProducts();
